@@ -1,133 +1,41 @@
-from flask import Flask, jsonify, request
+import requests
+from flask import Flask, render_template, jsonify, request
 
 app = Flask(__name__)
 
-# Empty data store for students
-students_data = {}
+# Agify and Genderize API URLs
+AGIFY_API_URL = "https://api.agify.io"
+GENDERIZE_API_URL = "https://api.genderize.io"
 
 @app.route('/')
 def home():
-    return "🎓 Welcome to the Student Schedule Management System API!"
+    return render_template('index.html')  # Render the front-end template
 
-# -------------------------------------------------
-# 1️⃣ STUDENT MANAGEMENT ROUTES
-# -------------------------------------------------
+@app.route('/predict', methods=['POST'])
+def predict():
+    name = request.form.get('name')  # Get the name from the form input
 
-# Get all students
-@app.route('/students', methods=['GET'])
-def get_all_students():
-    if not students_data:
-        return jsonify({"message": "No students found"}), 200
-    return jsonify(list(students_data.values())), 200
+    if not name:
+        return render_template('index.html', error="Name is required!")  # Show an error if no name is entered
 
-# Add a new student
-@app.route('/students', methods=['POST'])
-def add_student():
-    data = request.get_json()
-    required_fields = ["name", "grade", "section"]
+    # Fetch predicted age from Agify API
+    agify_response = requests.get(AGIFY_API_URL, params={"name": name})
+    if agify_response.status_code != 200:
+        return jsonify({"error": "Failed to fetch age prediction"}), 500
 
-    if not all(field in data for field in required_fields):
-        return jsonify({"error": "Missing required fields"}), 400
+    agify_data = agify_response.json()
+    predicted_age = agify_data.get("age", "N/A")
 
-    name_key = data["name"].lower()
+    # Fetch predicted gender from Genderize API
+    genderize_response = requests.get(GENDERIZE_API_URL, params={"name": name})
+    if genderize_response.status_code != 200:
+        return jsonify({"error": "Failed to fetch gender prediction"}), 500
 
-    if name_key in students_data:
-        return jsonify({"error": "Student already exists"}), 400
+    genderize_data = genderize_response.json()
+    predicted_gender = genderize_data.get("gender", "N/A")
 
-    students_data[name_key] = {
-        "name": data["name"],
-        "grade": data["grade"],
-        "section": data["section"],
-        "schedule": []
-    }
+    # Render the result on the same page
+    return render_template('index.html', name=name, predicted_age=predicted_age, predicted_gender=predicted_gender)
 
-    return jsonify({"message": "Student added successfully"}), 201
-
-# Get a specific student's data
-@app.route('/student/<student_name>', methods=['GET'])
-def get_student(student_name):
-    student = students_data.get(student_name.lower())
-    if not student:
-        return jsonify({"error": "Student not found"}), 404
-    return jsonify(student), 200
-
-# Delete a student entirely
-@app.route('/student/<student_name>', methods=['DELETE'])
-def delete_student(student_name):
-    student_name = student_name.lower()
-    if student_name not in students_data:
-        return jsonify({"error": "Student not found"}), 404
-    del students_data[student_name]
-    return jsonify({"message": "Student deleted successfully"}), 200
-
-# -------------------------------------------------
-# 2️⃣ SCHEDULE MANAGEMENT ROUTES
-# -------------------------------------------------
-
-# Get a student's schedule
-@app.route('/student/<student_name>/schedule', methods=['GET'])
-def get_schedule(student_name):
-    student = students_data.get(student_name.lower())
-    if not student:
-        return jsonify({"error": "Student not found"}), 404
-    return jsonify(student["schedule"]), 200
-
-# Add a schedule entry for a student
-@app.route('/student/<student_name>/schedule', methods=['POST'])
-def add_schedule(student_name):
-    student = students_data.get(student_name.lower())
-    if not student:
-        return jsonify({"error": "Student not found"}), 404
-
-    new_schedule = request.get_json()
-    required_fields = ["day", "subject", "time"]
-
-    if not all(field in new_schedule for field in required_fields):
-        return jsonify({"error": "Missing required fields"}), 400
-
-    student["schedule"].append(new_schedule)
-    return jsonify({"message": "Schedule added successfully"}), 201
-
-# Update a schedule entry
-@app.route('/student/<student_name>/schedule', methods=['PUT'])
-def update_schedule(student_name):
-    student = students_data.get(student_name.lower())
-    if not student:
-        return jsonify({"error": "Student not found"}), 404
-
-    updated_schedule = request.get_json()
-    required_fields = ["day", "subject", "time"]
-    if not all(field in updated_schedule for field in required_fields):
-        return jsonify({"error": "Missing required fields"}), 400
-
-    for item in student["schedule"]:
-        if item["day"] == updated_schedule["day"] and item["subject"] == updated_schedule["subject"]:
-            item["time"] = updated_schedule["time"]
-            return jsonify({"message": "Schedule updated successfully"}), 200
-
-    return jsonify({"error": "Schedule entry not found"}), 404
-
-# Delete a schedule entry
-@app.route('/student/<student_name>/schedule', methods=['DELETE'])
-def delete_schedule(student_name):
-    student = students_data.get(student_name.lower())
-    if not student:
-        return jsonify({"error": "Student not found"}), 404
-
-    schedule_to_delete = request.get_json()
-    if not schedule_to_delete or "day" not in schedule_to_delete or "subject" not in schedule_to_delete:
-        return jsonify({"error": "Missing 'day' or 'subject'"}), 400
-
-    for idx, item in enumerate(student["schedule"]):
-        if item["day"] == schedule_to_delete["day"] and item["subject"] == schedule_to_delete["subject"]:
-            student["schedule"].pop(idx)
-            return jsonify({"message": "Schedule deleted successfully"}), 200
-
-    return jsonify({"error": "Schedule entry not found"}), 404
-
-
-# -------------------------------------------------
-# Run the Flask app
-# -------------------------------------------------
 if __name__ == '__main__':
     app.run(debug=True)
